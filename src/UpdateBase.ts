@@ -1,4 +1,5 @@
 import * as Console from "effect/Console"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { Changesets } from "./Changesets.ts"
@@ -7,12 +8,20 @@ import { Github } from "./Github.ts"
 import { NoPullRequest, PullRequests } from "./PullRequests.ts"
 import { RunnerEnv } from "./Runner.ts"
 
+export class UnsupportedReleaseType extends Data.TaggedError("UnsupportedReleaseType")<{
+  readonly type: Config.ReleaseType
+}> {
+  get message() {
+    return `No eligible branch is configured for '${this.type}' releases. Target a branch that supports this release type or change the changeset.`
+  }
+}
+
 export const run = Effect.gen(function* () {
   const pulls = yield* PullRequests
   const pull = yield* pulls.current
-  const prefix = yield* Config.prefix
+  const branches = yield* Config.eligibleBranches
 
-  if (pull.head.ref.startsWith(`${prefix}-`)) {
+  if (branches.some((branch) => branch.name === pull.head.ref)) {
     return yield* new NoPullRequest()
   }
 
@@ -26,17 +35,26 @@ export const run = Effect.gen(function* () {
   }
 
   const changeType = changeTypeOption.value
-  const targetBase = `${prefix}-${changeType}`
-  const currentBase = pull.base.ref as string
+  const targetBranch = yield* Config.branchFor(branches, changeType).pipe(
+    Effect.fromOption,
+    Effect.mapError(() => new UnsupportedReleaseType({ type: changeType })),
+  )
+  const targetBase = targetBranch.name
+  const currentBase = pull.base.ref
 
   if (currentBase === targetBase) {
     return yield* Console.log("No update needed")
   }
 
-  if (changeType === "major") {
-    yield* ensureBranchFor("minor")
+  const base = yield* Config.baseBranch
+  let branchBase = base
+  for (const branch of branches) {
+    yield* ensureBranch(branch.name, branchBase)
+    if (branch.name === targetBranch.name) {
+      break
+    }
+    branchBase = branch.name
   }
-  yield* ensureBranchFor(changeType)
 
   yield* pulls.setCurrentBase(targetBase)
   yield* pulls.addCurrentLabels([targetBase])
@@ -54,17 +72,11 @@ const getBranch = Effect.fn(function* (branch: string) {
   })
 })
 
-const getDefaultBranch = Effect.flatMap(Config.baseBranch, getBranch)
-
-const ensureBranchFor = Effect.fn(function* (changeType: "major" | "minor") {
+const ensureBranch = Effect.fn(function* (ref: string, base: string) {
   const env = yield* RunnerEnv
   const github = yield* Github
-  const prefix = yield* Config.prefix
-
-  const baseBranch =
-    changeType === "minor" ? yield* getDefaultBranch : yield* getBranch(`${prefix}-minor`)
+  const baseBranch = yield* getBranch(base)
   const sha = baseBranch.commit.sha
-  const ref = `${prefix}-${changeType}`
 
   const createBranch = github.wrap((_) => _.git.createRef)
   const create = createBranch({

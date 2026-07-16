@@ -48,8 +48,8 @@ const main = Effect.gen(function* () {
   const gh = yield* Github
   const env = yield* RunnerEnv
   const baseBranch = yield* ActionConfig.baseBranch
-  const prefix = yield* ActionConfig.prefix
-  const eligibleBranches = [`${prefix}-major`, `${prefix}-minor`]
+  const releaseBranches = yield* ActionConfig.eligibleBranches
+  const eligibleBranches = releaseBranches.map((branch) => branch.name)
   const currentUser = (yield* gh.request((_) => _.users.getAuthenticated())).data.login
 
   yield* Effect.log("Running").pipe(

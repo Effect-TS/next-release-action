@@ -12,7 +12,10 @@ inputs:
     description: Comma separated list of packages to check for updates
   branch_prefix:
     required: false
-    description: Prefix to use for release branches
+    description: Prefix used for default release branches
+  eligible_branches:
+    required: false
+    description: Comma separated eligible minor and major release branches
   base_branch:
     required: false
     description: Branch to merge release branch into, defaults to the default branch

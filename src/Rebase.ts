@@ -23,65 +23,51 @@ export const runComment = Effect.gen(function* () {
 
 export const run = Effect.gen(function* () {
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
-  const prefix = yield* Config.prefix
+  const branches = yield* Config.eligibleBranches
   const base = yield* Config.baseBranch
   const fetchOrigin = git.run((_) => _.fetch("origin"))
 
-  yield* fetchOrigin
+  const rebase = (branch: string, branchBase: string, reset: boolean) =>
+    Effect.gen(function* () {
+      yield* fetchOrigin
+      yield* Effect.log(`rebasing ${branch} on ${branchBase}`)
+      yield* git
+        .run((_) => {
+          const checkout = _.checkout(branch)
+          const current = reset ? checkout.reset(["--hard", `origin/${branch}`]) : checkout
+          return current.rebase([`origin/${branchBase}`]).push(["--force"])
+        })
+        .pipe(
+          Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
+          Effect.catchCause(Effect.log),
+        )
+    })
 
-  yield* Effect.log(`rebasing ${prefix}-major on ${prefix}-minor`)
-  yield* git
-    .run((_) =>
-      _.checkout(`${prefix}-major`)
-        .rebase([`origin/${prefix}-minor`])
-        .push(["--force"]),
-    )
-    .pipe(
-      Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
-      Effect.catchCause(Effect.log),
-    )
+  for (let index = branches.length - 1; index > 0; index--) {
+    const branch = branches[index]
+    const branchBase = branches[index - 1]
+    if (branch !== undefined && branchBase !== undefined) {
+      yield* rebase(branch.name, branchBase.name, false)
+    }
+  }
 
-  yield* fetchOrigin
-
-  yield* Effect.log(`rebasing ${prefix}-minor on ${base}`)
-  yield* git
-    .run((_) =>
-      _.checkout(`${prefix}-minor`)
-        .rebase([`origin/${base}`])
-        .push(["--force"]),
-    )
-    .pipe(
-      Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
-      Effect.catchCause(Effect.log),
-    )
-
-  yield* fetchOrigin
-
-  yield* Effect.log(`rebasing ${prefix}-major on ${prefix}-minor`)
-  yield* git
-    .run((_) =>
-      _.checkout(`${prefix}-major`)
-        .reset(["--hard", `origin/${prefix}-major`])
-        .rebase([`origin/${prefix}-minor`])
-        .push(["--force"]),
-    )
-    .pipe(
-      Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
-      Effect.catchCause(Effect.log),
-    )
+  for (let index = 0; index < branches.length; index++) {
+    const branch = branches[index]
+    if (branch !== undefined) {
+      yield* rebase(branch.name, Config.baseFor(branches, branch, base), index > 0)
+    }
+  }
 })
 
 export const runCurrent = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const gh = yield* Github
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
-  const prefix = yield* Config.prefix
+  const branches = yield* Config.eligibleBranches
   const pulls = yield* PullRequests
 
   const current = yield* pulls.current.pipe(
-    Effect.filterOrFail(
-      (pull) => pull.base.ref === `${prefix}-major` || pull.base.ref === `${prefix}-minor`,
-    ),
+    Effect.filterOrFail((pull) => branches.some((branch) => branch.name === pull.base.ref)),
     Effect.option,
   )
   if (Option.isNone(current)) {

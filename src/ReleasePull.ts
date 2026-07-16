@@ -11,28 +11,28 @@ import { RunnerEnv } from "./Runner.ts"
 
 export const run = Effect.gen(function* () {
   const env = yield* RunnerEnv
-  const prefix = yield* Config.prefix
-  const eligibleBranches = [`${prefix}-major`, `${prefix}-minor`]
+  const branches = yield* Config.eligibleBranches
+  const branch = branches.find((branch) => branch.name === env.ref)
 
-  if (!eligibleBranches.includes(env.ref)) {
+  if (branch === undefined) {
     return
   }
 
-  const head = env.ref
-  const base = head.endsWith("-major") ? `${prefix}-minor` : yield* Config.baseBranch
+  const head = branch.name
+  const baseBranch = yield* Config.baseBranch
+  const base = Config.baseFor(branches, branch, baseBranch)
 
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
   const headSha = yield* git.run((_) => _.fetch("origin").revparse(`origin/${head}`))
   const baseSha = yield* git.run((_) => _.revparse(`origin/${base}`))
   if (headSha === baseSha) return
 
-  const changeType = head.endsWith("-major") ? "major" : "minor"
   const pulls = yield* PullRequests
   const body = yield* pullBody(base, head)
   yield* pulls.upsert({
     head,
     base,
-    title: `Release queue: ${changeType}`,
+    title: `Release queue: ${branch.type}`,
     body,
   })
 })

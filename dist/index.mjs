@@ -6,6 +6,7 @@ import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
 import * as Redacted from "effect/Redacted"
 import * as OS from "node:os"
@@ -18,7 +19,6 @@ import { identity, pipe } from "effect/Function"
 import * as Stream from "effect/Stream"
 import remarkParse from "remark-parse"
 import { unified } from "unified"
-import * as Data from "effect/Data"
 import * as Schedule from "effect/Schedule"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import * as SG from "simple-git"
@@ -70,6 +70,53 @@ const baseBranch = input("base_branch").pipe(
   Effect.catch(() => Effect.map(Effect.service(RunnerEnv), (_) => _.repo.default_branch)),
 )
 const prefix = Config.withDefault(input("branch_prefix"), "next")
+var InvalidEligibleBranches = class extends Data.TaggedError("InvalidEligibleBranches") {
+  get message() {
+    return `Invalid eligible_branches input: ${this.reason}`
+  }
+}
+const configuredEligibleBranches = Config.option(
+  Config.schema(Config.Array(Schema.NonEmptyString), "eligible_branches").pipe(
+    Config.nested("input"),
+  ),
+)
+const parseEligibleBranches = Effect.fn(function* (names) {
+  const branches = /* @__PURE__ */ new Map()
+  for (const name of names) {
+    const type = name.endsWith("-minor") ? "minor" : name.endsWith("-major") ? "major" : void 0
+    if (type === void 0)
+      return yield* new InvalidEligibleBranches({
+        reason: `branch '${name}' must end with '-minor' or '-major'`,
+      })
+    if (branches.has(type))
+      return yield* new InvalidEligibleBranches({
+        reason: `only one '${type}' branch may be configured`,
+      })
+    branches.set(type, {
+      name,
+      type,
+    })
+  }
+  if (branches.size === 0)
+    return yield* new InvalidEligibleBranches({ reason: "at least one branch is required" })
+  return ["minor", "major"].flatMap((type) => {
+    const branch = branches.get(type)
+    return branch === void 0 ? [] : [branch]
+  })
+})
+const eligibleBranches = Effect.gen(function* () {
+  const configured = yield* configuredEligibleBranches
+  const names = Option.isSome(configured)
+    ? configured.value
+    : yield* prefix.pipe(Effect.map((prefix) => [`${prefix}-minor`, `${prefix}-major`]))
+  return yield* parseEligibleBranches(names)
+})
+const branchFor = (branches, type) =>
+  Option.fromNullishOr(branches.find((branch) => branch.type === type))
+const baseFor = (branches, branch, base) => {
+  const index = branches.findIndex((candidate) => candidate.name === branch.name)
+  return index <= 0 ? base : (branches[index - 1]?.name ?? base)
+}
 const packages = Config.schema(Config.Array(Schema.NonEmptyString), "packages").pipe(
   Config.nested("input"),
   Config.withDefault([]),
@@ -464,56 +511,43 @@ const runComment = Effect.gen(function* () {
 })
 const run$2 = Effect.gen(function* () {
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
-  const prefix$5 = yield* prefix
+  const branches = yield* eligibleBranches
   const base = yield* baseBranch
   const fetchOrigin = git.run((_) => _.fetch("origin"))
-  yield* fetchOrigin
-  yield* Effect.log(`rebasing ${prefix$5}-major on ${prefix$5}-minor`)
-  yield* git
-    .run((_) =>
-      _.checkout(`${prefix$5}-major`)
-        .rebase([`origin/${prefix$5}-minor`])
-        .push(["--force"]),
-    )
-    .pipe(
-      Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
-      Effect.catchCause(Effect.log),
-    )
-  yield* fetchOrigin
-  yield* Effect.log(`rebasing ${prefix$5}-minor on ${base}`)
-  yield* git
-    .run((_) =>
-      _.checkout(`${prefix$5}-minor`)
-        .rebase([`origin/${base}`])
-        .push(["--force"]),
-    )
-    .pipe(
-      Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
-      Effect.catchCause(Effect.log),
-    )
-  yield* fetchOrigin
-  yield* Effect.log(`rebasing ${prefix$5}-major on ${prefix$5}-minor`)
-  yield* git
-    .run((_) =>
-      _.checkout(`${prefix$5}-major`)
-        .reset(["--hard", `origin/${prefix$5}-major`])
-        .rebase([`origin/${prefix$5}-minor`])
-        .push(["--force"]),
-    )
-    .pipe(
-      Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
-      Effect.catchCause(Effect.log),
-    )
+  const rebase = (branch, branchBase, reset) =>
+    Effect.gen(function* () {
+      yield* fetchOrigin
+      yield* Effect.log(`rebasing ${branch} on ${branchBase}`)
+      yield* git
+        .run((_) => {
+          const checkout = _.checkout(branch)
+          return (reset ? checkout.reset(["--hard", `origin/${branch}`]) : checkout)
+            .rebase([`origin/${branchBase}`])
+            .push(["--force"])
+        })
+        .pipe(
+          Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
+          Effect.catchCause(Effect.log),
+        )
+    })
+  for (let index = branches.length - 1; index > 0; index--) {
+    const branch = branches[index]
+    const branchBase = branches[index - 1]
+    if (branch !== void 0 && branchBase !== void 0)
+      yield* rebase(branch.name, branchBase.name, false)
+  }
+  for (let index = 0; index < branches.length; index++) {
+    const branch = branches[index]
+    if (branch !== void 0) yield* rebase(branch.name, baseFor(branches, branch, base), index > 0)
+  }
 })
 const runCurrent = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const gh = yield* Github
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
-  const prefix$6 = yield* prefix
+  const branches = yield* eligibleBranches
   const current = yield* (yield* PullRequests).current.pipe(
-    Effect.filterOrFail(
-      (pull) => pull.base.ref === `${prefix$6}-major` || pull.base.ref === `${prefix$6}-minor`,
-    ),
+    Effect.filterOrFail((pull) => branches.some((branch) => branch.name === pull.base.ref)),
     Effect.option,
   )
   if (Option.isNone(current)) return
@@ -534,23 +568,24 @@ const runCurrent = Effect.gen(function* () {
 //#region src/ReleasePull.ts
 const run$1 = Effect.gen(function* () {
   const env = yield* RunnerEnv
-  const prefix$4 = yield* prefix
-  if (![`${prefix$4}-major`, `${prefix$4}-minor`].includes(env.ref)) return
-  const head = env.ref
-  const base = head.endsWith("-major") ? `${prefix$4}-minor` : yield* baseBranch
+  const branches = yield* eligibleBranches
+  const branch = branches.find((branch) => branch.name === env.ref)
+  if (branch === void 0) return
+  const head = branch.name
+  const baseBranch$2 = yield* baseBranch
+  const base = baseFor(branches, branch, baseBranch$2)
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
   if (
     (yield* git.run((_) => _.fetch("origin").revparse(`origin/${head}`))) ===
     (yield* git.run((_) => _.revparse(`origin/${base}`)))
   )
     return
-  const changeType = head.endsWith("-major") ? "major" : "minor"
   const pulls = yield* PullRequests
   const body = yield* pullBody(base, head)
   yield* pulls.upsert({
     head,
     base,
-    title: `Release queue: ${changeType}`,
+    title: `Release queue: ${branch.type}`,
     body,
   })
 })
@@ -599,11 +634,16 @@ const diffCommits = (base, head) =>
   }).pipe(Stream.unwrap)
 //#endregion
 //#region src/UpdateBase.ts
+var UnsupportedReleaseType = class extends Data.TaggedError("UnsupportedReleaseType") {
+  get message() {
+    return `No eligible branch is configured for '${this.type}' releases. Target a branch that supports this release type or change the changeset.`
+  }
+}
 const run = Effect.gen(function* () {
   const pulls = yield* PullRequests
   const pull = yield* pulls.current
-  const prefix$2 = yield* prefix
-  if (pull.head.ref.startsWith(`${prefix$2}-`)) return yield* new NoPullRequest()
+  const branches = yield* eligibleBranches
+  if (branches.some((branch) => branch.name === pull.head.ref)) return yield* new NoPullRequest()
   const changesets = yield* Changesets
   const packages$1 = yield* packages
   const changeTypeOption = yield* changesets
@@ -611,10 +651,18 @@ const run = Effect.gen(function* () {
     .pipe(Effect.map(Option.filter((_) => _ !== "patch")))
   if (Option.isNone(changeTypeOption)) return yield* Console.log("Not a minor or major change")
   const changeType = changeTypeOption.value
-  const targetBase = `${prefix$2}-${changeType}`
+  const targetBranch = yield* branchFor(branches, changeType).pipe(
+    Effect.fromOption,
+    Effect.mapError(() => new UnsupportedReleaseType({ type: changeType })),
+  )
+  const targetBase = targetBranch.name
   if (pull.base.ref === targetBase) return yield* Console.log("No update needed")
-  if (changeType === "major") yield* ensureBranchFor("minor")
-  yield* ensureBranchFor(changeType)
+  let branchBase = yield* baseBranch
+  for (const branch of branches) {
+    yield* ensureBranch(branch.name, branchBase)
+    if (branch.name === targetBranch.name) break
+    branchBase = branch.name
+  }
   yield* pulls.setCurrentBase(targetBase)
   yield* pulls.addCurrentLabels([targetBase])
   yield* Console.log(`Updated base to ${targetBase}`)
@@ -627,15 +675,10 @@ const getBranch = Effect.fn(function* (branch) {
     branch,
   })
 })
-const getDefaultBranch = Effect.flatMap(baseBranch, getBranch)
-const ensureBranchFor = Effect.fn(function* (changeType) {
+const ensureBranch = Effect.fn(function* (ref, base) {
   const env = yield* RunnerEnv
   const github = yield* Github
-  const prefix$3 = yield* prefix
-  const sha = (
-    changeType === "minor" ? yield* getDefaultBranch : yield* getBranch(`${prefix$3}-minor`)
-  ).commit.sha
-  const ref = `${prefix$3}-${changeType}`
+  const sha = (yield* getBranch(base)).commit.sha
   const create = github.wrap((_) => _.git.createRef)({
     owner: env.repo.owner.login,
     repo: env.repo.name,
@@ -675,8 +718,7 @@ const main = Effect.gen(function* () {
   const gh = yield* Github
   const env = yield* RunnerEnv
   const baseBranch$1 = yield* baseBranch
-  const prefix$1 = yield* prefix
-  const eligibleBranches = [`${prefix$1}-major`, `${prefix$1}-minor`]
+  const eligibleBranches$1 = (yield* eligibleBranches).map((branch) => branch.name)
   const currentUser = (yield* gh.request((_) => _.users.getAuthenticated())).data.login
   yield* Effect.log("Running").pipe(
     Effect.annotateLogs({
@@ -686,12 +728,12 @@ const main = Effect.gen(function* () {
       currentUser,
       isPR: Option.isSome(env.pull),
       isComment: Option.isSome(env.comment),
-      eligibleBranches,
+      eligibleBranches: eligibleBranches$1,
       isOrigin: env.isOrigin,
     }),
   )
   if (env.comment._tag === "Some" && env.comment.value.body.startsWith("/rebase")) yield* runComment
-  else if (eligibleBranches.includes(env.ref) && env.isOrigin) {
+  else if (eligibleBranches$1.includes(env.ref) && env.isOrigin) {
     if (env.actor !== currentUser) yield* run$2
     yield* run$1
   } else if (Option.isSome(env.pull))
