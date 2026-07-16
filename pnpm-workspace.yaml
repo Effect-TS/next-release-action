@@ -1,0 +1,28 @@
+catalog:
+  "@actions/github": ^9.1.1
+  "@effect/platform-node": 4.0.0-beta.98
+  "@octokit/types": ^16.0.0
+  "@types/mdast": ^4.0.4
+  "@types/node": ^26.1.1
+  effect: 4.0.0-beta.98
+  mdast: ^3.0.0
+  remark-parse: ^11.0.0
+  simple-git: ^3.36.0
+  typescript: ^7.0.2
+  unified: ^11.0.5
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.4
+  vite-plus: 0.2.4
+
+overrides:
+  vite: "catalog:"
+
+catalogMode: prefer
+
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"
+
+allowBuilds:
+  msgpackr-extract: set this to true or false

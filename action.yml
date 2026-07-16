@@ -1,0 +1,27 @@
+name: Next Release Action
+description: Manage staged release branches and pull requests from changesets
+branding:
+  icon: upload
+  color: blue
+inputs:
+  github_token:
+    required: true
+    description: "token to access Github API"
+  packages:
+    required: false
+    description: Comma separated list of packages to check for updates
+  branch_prefix:
+    required: false
+    description: Prefix to use for release branches
+  base_branch:
+    required: false
+    description: Branch to merge release branch into, defaults to the default branch
+  git_user:
+    required: false
+    description: Git user to use for commits
+  git_email:
+    required: false
+    description: Git email to use for commits
+runs:
+  using: "node24"
+  main: "dist/index.mjs"
