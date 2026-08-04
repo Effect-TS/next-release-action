@@ -42,7 +42,7 @@ const MainLayer = Layer.mergeAll(
   RunnerEnv.layer,
   Github.layer,
   GitLayer,
-).pipe(Layer.provide(ConfigProviderLayer), Layer.provideMerge(NodeServices.layer))
+).pipe(Layer.provideMerge(ConfigProviderLayer), Layer.provideMerge(NodeServices.layer))
 
 const main = Effect.gen(function* () {
   const gh = yield* Github
