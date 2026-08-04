@@ -42,7 +42,7 @@ const MainLayer = Layer.mergeAll(
   RunnerEnv.layer,
   Github.layer,
   GitLayer,
-).pipe(Layer.provide(ConfigProviderLayer), Layer.provideMerge(NodeServices.layer))
+).pipe(Layer.provideMerge(ConfigProviderLayer), Layer.provideMerge(NodeServices.layer))
 
 const main = Effect.gen(function* () {
   const gh = yield* Github
@@ -92,6 +92,6 @@ const diagnostic = Effect.gen(function* () {
       eligibleBranches,
     }),
   )
-}).pipe(Effect.provide(ConfigProviderLayer))
+}).pipe(Effect.provide(MainLayer))
 
 NodeRuntime.runMain(process.env.NEXT_RELEASE_ACTION_DIAGNOSTIC === "true" ? diagnostic : main)
