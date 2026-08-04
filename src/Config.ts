@@ -2,7 +2,6 @@ import * as Config from "effect/Config"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
 import { input } from "./utils/config.ts"
 import { RunnerEnv } from "./Runner.ts"
 
@@ -28,8 +27,8 @@ export class InvalidEligibleBranches extends Data.TaggedError("InvalidEligibleBr
 }
 
 const configuredEligibleBranches = Config.option(
-  Config.schema(Config.Array(Schema.NonEmptyString), "eligible_branches").pipe(
-    Config.nested("input"),
+  input("eligible_branches").pipe(
+    Config.map((branches) => branches.split(",").map((branch) => branch.trim())),
   ),
 )
 
@@ -86,7 +85,7 @@ export const baseFor = (
   return index <= 0 ? base : (branches[index - 1]?.name ?? base)
 }
 
-export const packages: Config.Config<ReadonlyArray<string>> = Config.schema(
-  Config.Array(Schema.NonEmptyString),
-  "packages",
-).pipe(Config.nested("input"), Config.withDefault([]))
+export const packages: Config.Config<ReadonlyArray<string>> = input("packages").pipe(
+  Config.map((packages) => packages.split(",").map((pkg) => pkg.trim())),
+  Config.withDefault([]),
+)

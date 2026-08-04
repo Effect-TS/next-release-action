@@ -2,7 +2,7 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { describe, expect, it } from "vite-plus/test"
-import { baseFor, branchFor, eligibleBranches, parseEligibleBranches } from "./Config.ts"
+import { baseFor, branchFor, eligibleBranches, packages, parseEligibleBranches } from "./Config.ts"
 
 describe("eligible branches", () => {
   it("preserves the default minor-to-major release hierarchy", async () => {
@@ -30,6 +30,18 @@ describe("eligible branches", () => {
     expect(Option.isNone(branchFor(branches, "major"))).toBe(true)
   })
 
+  it("supports namespaced minor and major release queues", async () => {
+    const provider = ConfigProvider.fromEnv({
+      env: { INPUT_ELIGIBLE_BRANCHES: "v4/next-minor,v4/next-major" },
+    }).pipe(ConfigProvider.constantCase, ConfigProvider.layer)
+    const branches = await Effect.runPromise(eligibleBranches.pipe(Effect.provide(provider)))
+
+    expect(branches).toEqual([
+      { name: "v4/next-minor", type: "minor" },
+      { name: "v4/next-major", type: "major" },
+    ])
+  })
+
   it("rejects branches without a release type suffix", async () => {
     await expect(Effect.runPromise(parseEligibleBranches(["next"]))).rejects.toThrow(
       "branch 'next' must end with '-minor' or '-major'",
@@ -40,5 +52,18 @@ describe("eligible branches", () => {
     await expect(
       Effect.runPromise(parseEligibleBranches(["next-minor", "v3/next-minor"])),
     ).rejects.toThrow("only one 'minor' branch may be configured")
+  })
+})
+
+describe("packages", () => {
+  it("reads a comma-separated package list", async () => {
+    const provider = ConfigProvider.fromEnv({
+      env: { INPUT_PACKAGES: "effect, @effect/platform" },
+    }).pipe(ConfigProvider.constantCase, ConfigProvider.layer)
+
+    expect(await Effect.runPromise(packages.pipe(Effect.provide(provider)))).toEqual([
+      "effect",
+      "@effect/platform",
+    ])
   })
 })
