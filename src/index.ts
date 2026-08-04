@@ -83,15 +83,4 @@ const main = Effect.gen(function* () {
   }
 }).pipe(Effect.provide(MainLayer))
 
-const diagnostic = Effect.gen(function* () {
-  const eligibleBranches = (yield* ActionConfig.eligibleBranches).map((branch) => branch.name)
-  yield* Effect.log("Input diagnostics").pipe(
-    Effect.annotateLogs({
-      inputEligibleBranchesPresent: Object.hasOwn(process.env, "INPUT_ELIGIBLE_BRANCHES"),
-      inputEligibleBranches: process.env.INPUT_ELIGIBLE_BRANCHES ?? null,
-      eligibleBranches,
-    }),
-  )
-}).pipe(Effect.provide(MainLayer))
-
-NodeRuntime.runMain(process.env.NEXT_RELEASE_ACTION_DIAGNOSTIC === "true" ? diagnostic : main)
+NodeRuntime.runMain(main)
