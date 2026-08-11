@@ -44,7 +44,7 @@ export class Github extends Context.Service<Github, GithubService>()("Github", {
     const request = <A>(f: (_: Endpoints) => Promise<A>) =>
       Effect.tryPromise({
         try: () => f(rest),
-        catch: (reason) => new GithubError(reason as any),
+        catch: (reason) => new GithubError({ reason: reason as RequestError }),
       }).pipe(
         Effect.retry({
           while: (err) =>
