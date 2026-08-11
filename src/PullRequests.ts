@@ -6,7 +6,9 @@ import * as Stream from "effect/Stream"
 import { Github } from "./Github.ts"
 import { RunnerEnv } from "./Runner.ts"
 
-export class NoPullRequest extends Data.TaggedError("NoPullRequest") {}
+export class NoPullRequest extends Data.TaggedError("NoPullRequest")<{
+  readonly cause?: unknown
+}> {}
 
 export class PullRequests extends Context.Service<PullRequests>()("app/PullRequests", {
   make: Effect.gen(function* () {
@@ -90,7 +92,7 @@ export class PullRequests extends Context.Service<PullRequests>()("app/PullReque
           pull_number: issue.number,
         }),
       ),
-      Effect.mapError(() => new NoPullRequest()),
+      Effect.mapError((cause) => new NoPullRequest({ cause })),
       Effect.cached,
     )
 

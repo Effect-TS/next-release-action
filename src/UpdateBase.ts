@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { Changesets } from "./Changesets.ts"
 import * as Config from "./Config.ts"
-import { Github } from "./Github.ts"
+import { getGithubErrorStatus, Github } from "./Github.ts"
 import { NoPullRequest, PullRequests } from "./PullRequests.ts"
 import { RunnerEnv } from "./Runner.ts"
 
@@ -22,7 +22,7 @@ export const run = Effect.gen(function* () {
   const branches = yield* Config.eligibleBranches
 
   if (branches.some((branch) => branch.name === pull.head.ref)) {
-    return yield* new NoPullRequest()
+    return yield* new NoPullRequest({})
   }
 
   const changesets = yield* Changesets
@@ -88,7 +88,7 @@ const ensureBranch = Effect.fn(function* (ref: string, base: string) {
 
   yield* getBranch(ref).pipe(
     Effect.catchIf(
-      (e) => e.cause.status === 404,
+      (e) => getGithubErrorStatus(e) === 404,
       (_) => create,
     ),
   )

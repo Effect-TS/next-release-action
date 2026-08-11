@@ -1,10 +1,11 @@
 import { getOctokit } from "@actions/github"
-import type { OctokitResponse, RequestError } from "@octokit/types"
+import type { OctokitResponse } from "@octokit/types"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Redacted from "effect/Redacted"
 import * as Schedule from "effect/Schedule"
 import * as Stream from "effect/Stream"
@@ -12,8 +13,13 @@ import { inputSecret } from "./utils/config.ts"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 
 export class GithubError extends Data.TaggedError("GithubError")<{
-  readonly cause: RequestError
+  readonly cause: unknown
 }> {}
+
+export const getGithubErrorStatus = (error: GithubError) =>
+  Predicate.hasProperty(error.cause, "status") && typeof error.cause.status === "number"
+    ? error.cause.status
+    : undefined
 
 type GithubApi = ReturnType<typeof getOctokit>
 type Endpoints = GithubApi["rest"]
@@ -44,11 +50,13 @@ export class Github extends Context.Service<Github, GithubService>()("Github", {
     const request = <A>(f: (_: Endpoints) => Promise<A>) =>
       Effect.tryPromise({
         try: () => f(rest),
-        catch: (cause) => new GithubError({ cause: cause as RequestError }),
+        catch: (cause) => new GithubError({ cause }),
       }).pipe(
         Effect.retry({
-          while: (err) =>
-            err.cause.status === 403 || err.cause.status === 429 || err.cause.status >= 500,
+          while: (err) => {
+            const status = getGithubErrorStatus(err)
+            return status === 403 || status === 429 || (status !== undefined && status >= 500)
+          },
           schedule: Schedule.max([
             Schedule.exponential("1 second"),
             Schedule.spaced("60 seconds"),

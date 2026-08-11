@@ -17,4 +17,17 @@ describe("Github", () => {
 
     expect(error.cause).toBe(cause)
   })
+
+  it("preserves failures without a request status", async () => {
+    const provider = ConfigProvider.fromEnv({
+      env: { INPUT_GITHUB_TOKEN: "test-token" },
+    }).pipe(ConfigProvider.constantCase, ConfigProvider.layer)
+
+    const error = await Effect.gen(function* () {
+      const github = yield* Github
+      return yield* github.request(() => Promise.reject(undefined)).pipe(Effect.flip)
+    }).pipe(Effect.provide(Github.layer), Effect.provide(provider), Effect.runPromise)
+
+    expect(error.cause).toBeUndefined()
+  })
 })

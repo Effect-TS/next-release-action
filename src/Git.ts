@@ -3,13 +3,16 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
 import * as SG from "simple-git"
 
 export class GitError extends Data.TaggedError("GitError")<{
-  readonly cause: SG.GitError
+  readonly cause: unknown
 }> {
   get message() {
-    return this.cause.message
+    return Predicate.hasProperty(this.cause, "message") && typeof this.cause.message === "string"
+      ? this.cause.message
+      : String(this.cause)
   }
 }
 
@@ -31,7 +34,7 @@ const make = ({ simpleGit: opts = {}, userName, userEmail }: GitConfig) => {
     Effect.gen(function* () {
       yield* Effect.tryPromise({
         try: () => SG.simpleGit(opts).clone(url, dir),
-        catch: (cause) => new GitError({ cause: cause as SG.GitError }),
+        catch: (cause) => new GitError({ cause }),
       })
 
       return yield* open(dir)
@@ -44,7 +47,7 @@ const make = ({ simpleGit: opts = {}, userName, userEmail }: GitConfig) => {
       const run = <A>(f: (git: SG.SimpleGit) => Promise<A>) =>
         Effect.tryPromise({
           try: () => f(git),
-          catch: (cause) => new GitError({ cause: cause as SG.GitError }),
+          catch: (cause) => new GitError({ cause }),
         })
 
       yield* run((_) => _.addConfig("user.name", userName).addConfig("user.email", userEmail))
