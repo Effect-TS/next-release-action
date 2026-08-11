@@ -12,7 +12,7 @@ import { inputSecret } from "./utils/config.ts"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 
 export class GithubError extends Data.TaggedError("GithubError")<{
-  readonly reason: RequestError
+  readonly cause: RequestError
 }> {}
 
 type GithubApi = ReturnType<typeof getOctokit>
@@ -44,11 +44,11 @@ export class Github extends Context.Service<Github, GithubService>()("Github", {
     const request = <A>(f: (_: Endpoints) => Promise<A>) =>
       Effect.tryPromise({
         try: () => f(rest),
-        catch: (reason) => new GithubError(reason as any),
+        catch: (cause) => new GithubError({ cause: cause as RequestError }),
       }).pipe(
         Effect.retry({
           while: (err) =>
-            err.reason.status === 403 || err.reason.status === 429 || err.reason.status >= 500,
+            err.cause.status === 403 || err.cause.status === 429 || err.cause.status >= 500,
           schedule: Schedule.max([
             Schedule.exponential("1 second"),
             Schedule.spaced("60 seconds"),

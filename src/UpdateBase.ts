@@ -88,7 +88,7 @@ const ensureBranch = Effect.fn(function* (ref: string, base: string) {
 
   yield* getBranch(ref).pipe(
     Effect.catchIf(
-      (e) => e.reason.status === 404,
+      (e) => e.cause.status === 404,
       (_) => create,
     ),
   )
