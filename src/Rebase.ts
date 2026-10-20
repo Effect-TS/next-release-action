@@ -1,6 +1,8 @@
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Stream from "effect/Stream"
 import { Comments } from "./Comments.ts"
 import * as Config from "./Config.ts"
 import { Git } from "./Git.ts"
@@ -57,11 +59,85 @@ export const run = Effect.gen(function* () {
       yield* rebase(branch.name, Config.baseFor(branches, branch, base), index > 0)
     }
   }
+
+  const pulls = yield* PullRequests
+  yield* fetchOrigin
+  for (const branch of branches) {
+    yield* pulls.listOpen(branch.name).pipe(
+      Stream.filter((pull) => shouldAutoRebase(branches, pull)),
+      Stream.runForEach((pull) => rebasePull(pull).pipe(Effect.catchCause(Effect.log))),
+    )
+  }
+})
+
+export class PullCheckoutError extends Data.TaggedError("PullCheckoutError")<{
+  readonly number: number
+}> {
+  get message() {
+    return `failed to check out #${this.number}`
+  }
+}
+
+interface RebasePull {
+  readonly number: number
+  readonly base: { readonly ref: string }
+  readonly head: {
+    readonly ref: string
+    readonly sha: string
+    readonly repo: { readonly clone_url: string } | null
+  }
+}
+
+export const shouldAutoRebase = (
+  branches: ReadonlyArray<Config.ReleaseBranch>,
+  pull: {
+    readonly draft?: boolean | undefined
+    readonly base: { readonly ref: string; readonly repo: { readonly full_name: string } }
+    readonly head: {
+      readonly ref: string
+      readonly repo: { readonly full_name: string } | null
+    }
+  },
+) =>
+  pull.draft !== true &&
+  branches.some((branch) => branch.name === pull.base.ref) &&
+  // Release branch heads are rebased with their branch; same-named fork branches are not.
+  !(
+    pull.head.repo?.full_name === pull.base.repo.full_name &&
+    branches.some((branch) => branch.name === pull.head.ref)
+  )
+
+// Expects origin to be fetched. Aborts a failed rebase so the checkout can be reused.
+const rebasePull = Effect.fn(function* (pull: RebasePull) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const gh = yield* Github
+  const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
+  const headRepo = pull.head.repo
+  if (headRepo === null) {
+    return yield* Effect.log(`skipping #${pull.number}: head repository is missing`)
+  }
+
+  yield* Effect.log(`rebasing #${pull.number} on ${pull.base.ref}`)
+  const command = gh.cli("pr", "checkout", "-b", "pr-branch", "--force", pull.number.toString())
+  yield* spawner.exitCode(command).pipe(
+    Effect.filterOrFail(
+      (code) => code === 0,
+      () => new PullCheckoutError({ number: pull.number }),
+    ),
+  )
+
+  yield* git
+    .run((_) =>
+      _.rebase([`origin/${pull.base.ref}`]).push([
+        headRepo.clone_url,
+        `pr-branch:${pull.head.ref}`,
+        `--force-with-lease=${pull.head.ref}:${pull.head.sha}`,
+      ]),
+    )
+    .pipe(Effect.tapError(() => git.run((_) => _.rebase(["--abort"])).pipe(Effect.ignore)))
 })
 
 export const runCurrent = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-  const gh = yield* Github
   const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
   const branches = yield* Config.eligibleBranches
   const pulls = yield* PullRequests
@@ -74,18 +150,6 @@ export const runCurrent = Effect.gen(function* () {
     return
   }
 
-  const pull = current.value
-  yield* git.run((_) => _.fetch("origin").checkout(pull.base.ref))
-
-  yield* Effect.log(`rebasing #${pull.number} on ${pull.base.ref}`)
-  const command = gh.cli("pr", "checkout", "-b", "pr-branch", "--force", pull.number.toString())
-  yield* spawner.exitCode(command)
-
-  yield* git.run((_) =>
-    _.rebase([pull.base.ref]).push([
-      pull.head.repo!.clone_url,
-      `pr-branch:${pull.head.ref}`,
-      "--force",
-    ]),
-  )
+  yield* git.run((_) => _.fetch("origin"))
+  yield* rebasePull(current.value)
 })

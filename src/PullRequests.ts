@@ -41,6 +41,18 @@ export class PullRequests extends Context.Service<PullRequests>()("app/PullReque
           ),
         )
 
+    const listOpen = (base: string) =>
+      github.stream((_, page) =>
+        _.pulls.list({
+          owner: env.repo.owner.login,
+          repo: env.repo.name,
+          base,
+          state: "open",
+          per_page: 100,
+          page,
+        }),
+      )
+
     const findFirst = (options: { readonly base: string; readonly head: string }) =>
       find(options).pipe(Stream.runHead, Effect.flatMap(Effect.fromOption))
 
@@ -176,6 +188,7 @@ export class PullRequests extends Context.Service<PullRequests>()("app/PullReque
 
     return {
       find,
+      listOpen,
       findFirst,
       upsert,
       update,
