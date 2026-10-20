@@ -83,6 +83,7 @@ export class Github extends Context.Service<Github, GithubService>()("Github", {
     const cli = (...args: ReadonlyArray<string>) =>
       ChildProcess.make("gh", args, {
         shell: true,
+        extendEnv: true,
         env: {
           GH_TOKEN: Redacted.value(token),
         },
