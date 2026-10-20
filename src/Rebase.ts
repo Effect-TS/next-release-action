@@ -29,15 +29,26 @@ export const run = Effect.gen(function* () {
   const base = yield* Config.baseBranch
   const fetchOrigin = git.run((_) => _.fetch("origin"))
 
-  const rebase = (branch: string, branchBase: string, reset: boolean) =>
+  // With `previousBase`, only the commits after the base's old tip are replayed, so commits
+  // copied from a base that has since been rewritten are not replayed on top of their rewrites.
+  const rebase = (
+    branch: string,
+    branchBase: string,
+    reset: boolean,
+    previousBase: Option.Option<string> = Option.none(),
+  ) =>
     Effect.gen(function* () {
       yield* fetchOrigin
       yield* Effect.log(`rebasing ${branch} on ${branchBase}`)
+      const args = Option.match(previousBase, {
+        onNone: () => [`origin/${branchBase}`],
+        onSome: (sha) => ["--onto", `origin/${branchBase}`, sha],
+      })
       yield* git
         .run((_) => {
           const checkout = _.checkout(branch)
           const current = reset ? checkout.reset(["--hard", `origin/${branch}`]) : checkout
-          return current.rebase([`origin/${branchBase}`]).push(["--force"])
+          return current.rebase(args).push(["--force"])
         })
         .pipe(
           Effect.tapError((_) => git.run((_) => _.rebase(["--abort"]))),
@@ -53,10 +64,21 @@ export const run = Effect.gen(function* () {
     }
   }
 
+  // Recorded before the loop below rewrites the bases.
+  yield* fetchOrigin
+  const previousBases = yield* Effect.forEach(branches, (branch) =>
+    git.run((_) => _.revparse([`origin/${branch.name}`])).pipe(Effect.option),
+  )
+
   for (let index = 0; index < branches.length; index++) {
     const branch = branches[index]
     if (branch !== undefined) {
-      yield* rebase(branch.name, Config.baseFor(branches, branch, base), index > 0)
+      yield* rebase(
+        branch.name,
+        Config.baseFor(branches, branch, base),
+        index > 0,
+        previousBases[index - 1] ?? Option.none(),
+      )
     }
   }
 
