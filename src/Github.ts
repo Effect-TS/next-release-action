@@ -70,7 +70,7 @@ export class Github extends Context.Service<Github, GithubService>()("Github", {
       f: (_: Endpoints, page: number) => Promise<OctokitResponse<A>>,
       g: (_: A) => ReadonlyArray<B>,
     ) =>
-      Stream.paginate(0, (page) =>
+      Stream.paginate(1, (page) =>
         request((rest) => f(rest, page)).pipe(
           Effect.map((_) => [g(_.data), maybeNextPage(page, _.headers.link)]),
         ),
