@@ -7,10 +7,13 @@ const branches: ReadonlyArray<ReleaseBranch> = [
   { name: "v4/next-major", type: "major" },
 ]
 
-const pull = (base: string, head: string, draft = false) => ({
+const upstream = { full_name: "Effect-TS/effect" }
+const fork = { full_name: "contributor/effect" }
+
+const pull = (base: string, head: string, draft = false, headRepo = upstream) => ({
   draft,
-  base: { ref: base },
-  head: { ref: head },
+  base: { ref: base, repo: upstream },
+  head: { ref: head, repo: headRepo },
 })
 
 describe("shouldAutoRebase", () => {
@@ -22,5 +25,9 @@ describe("shouldAutoRebase", () => {
     expect(shouldAutoRebase(branches, pull("main", "feature-d"))).toBe(false)
     // The "Release queue: major" PR is already rebased with its release branch.
     expect(shouldAutoRebase(branches, pull("v4/next-minor", "v4/next-major"))).toBe(false)
+    // A fork branch that shares a release branch name is an ordinary contribution.
+    expect(shouldAutoRebase(branches, pull("v4/next-minor", "v4/next-major", false, fork))).toBe(
+      true,
+    )
   })
 })
