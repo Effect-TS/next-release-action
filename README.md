@@ -24,6 +24,9 @@ For a minor-only Effect V3 queue:
     eligible_branches: v3/next-minor
 ```
 
+Branches and pull requests are not automatically rebased. Use a `/rebase` comment on a pull request
+to explicitly request a rebase.
+
 ## Development
 
 ```sh
