@@ -68,9 +68,6 @@ const main = Effect.gen(function* () {
   if (env.comment._tag === "Some" && env.comment.value.body.startsWith("/rebase")) {
     yield* Rebase.runComment
   } else if (eligibleBranches.includes(env.ref) && env.isOrigin) {
-    if (env.actor !== currentUser) {
-      yield* Rebase.run
-    }
     yield* ReleasePull.run
   } else if (Option.isSome(env.pull)) {
     yield* UpdateBase.run.pipe(
@@ -78,8 +75,6 @@ const main = Effect.gen(function* () {
         NoPullRequest: () => Console.log("No pull request found"),
       }),
     )
-  } else if (env.ref === baseBranch) {
-    yield* Rebase.run
   }
 }).pipe(Effect.provide(MainLayer))
 
