@@ -111,8 +111,9 @@ describe("run", () => {
         }),
       ),
     )
+    // Individual pull requests are only rebased on an explicit `/rebase` comment.
     const TestPullRequests = Layer.succeed(PullRequests, {
-      listOpen: () => Stream.empty,
+      listOpen: () => Stream.die("release branch sync must not rebase individual pull requests"),
     } as unknown as PullRequests["Service"])
     const TestRunnerEnv = Layer.succeed(RunnerEnv, {
       repo: { default_branch: "main" },
