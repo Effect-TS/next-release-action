@@ -2,7 +2,6 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import * as Stream from "effect/Stream"
 import { Comments } from "./Comments.ts"
 import * as Config from "./Config.ts"
 import { Git } from "./Git.ts"
@@ -80,15 +79,6 @@ export const run = Effect.gen(function* () {
         previousBases[index - 1] ?? Option.none(),
       )
     }
-  }
-
-  const pulls = yield* PullRequests
-  yield* fetchOrigin
-  for (const branch of branches) {
-    yield* pulls.listOpen(branch.name).pipe(
-      Stream.filter((pull) => shouldAutoRebase(branches, pull)),
-      Stream.runForEach((pull) => rebasePull(pull).pipe(Effect.catchCause(Effect.log))),
-    )
   }
 })
 

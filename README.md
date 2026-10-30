@@ -24,8 +24,10 @@ For a minor-only Effect V3 queue:
     eligible_branches: v3/next-minor
 ```
 
-Branches and pull requests are not automatically rebased. Use a `/rebase` comment on a pull request
-to explicitly request a rebase.
+Pushes to `base_branch`, and pushes to an eligible branch by anyone other than the action's own user,
+rebase the release branches onto each other in order, for example `main` → `next-minor` →
+`next-major`. Individual pull requests are not automatically rebased; comment `/rebase` on a pull
+request targeting an eligible branch to rebase it.
 
 ## Development
 
