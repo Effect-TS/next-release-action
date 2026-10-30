@@ -2,7 +2,6 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import * as Stream from "effect/Stream"
 import { Comments } from "./Comments.ts"
 import * as Config from "./Config.ts"
 import { Git } from "./Git.ts"
@@ -81,15 +80,6 @@ export const run = Effect.gen(function* () {
       )
     }
   }
-
-  const pulls = yield* PullRequests
-  yield* fetchOrigin
-  for (const branch of branches) {
-    yield* pulls.listOpen(branch.name).pipe(
-      Stream.filter((pull) => shouldAutoRebase(branches, pull)),
-      Stream.runForEach((pull) => rebasePull(pull).pipe(Effect.catchCause(Effect.log))),
-    )
-  }
 })
 
 export class PullCheckoutError extends Data.TaggedError("PullCheckoutError")<{
@@ -109,25 +99,6 @@ interface RebasePull {
     readonly repo: { readonly clone_url: string } | null
   }
 }
-
-export const shouldAutoRebase = (
-  branches: ReadonlyArray<Config.ReleaseBranch>,
-  pull: {
-    readonly draft?: boolean | undefined
-    readonly base: { readonly ref: string; readonly repo: { readonly full_name: string } }
-    readonly head: {
-      readonly ref: string
-      readonly repo: { readonly full_name: string } | null
-    }
-  },
-) =>
-  pull.draft !== true &&
-  branches.some((branch) => branch.name === pull.base.ref) &&
-  // Release branch heads are rebased with their branch; same-named fork branches are not.
-  !(
-    pull.head.repo?.full_name === pull.base.repo.full_name &&
-    branches.some((branch) => branch.name === pull.head.ref)
-  )
 
 // Expects origin to be fetched. Aborts a failed rebase so the checkout can be reused.
 const rebasePull = Effect.fn(function* (pull: RebasePull) {

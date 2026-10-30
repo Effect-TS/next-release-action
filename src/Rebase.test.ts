@@ -2,49 +2,14 @@ import { execFileSync } from "node:child_process"
 import * as Fs from "node:fs"
 import * as Os from "node:os"
 import * as Path from "node:path"
-import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Config from "effect/Config"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Stream from "effect/Stream"
 import { afterEach, describe, expect, it } from "vite-plus/test"
-import type { ReleaseBranch } from "./Config.ts"
 import { Git } from "./Git.ts"
-import { Github } from "./Github.ts"
-import { PullRequests } from "./PullRequests.ts"
-import { run, shouldAutoRebase } from "./Rebase.ts"
+import { run } from "./Rebase.ts"
 import { RunnerEnv } from "./Runner.ts"
-
-const branches: ReadonlyArray<ReleaseBranch> = [
-  { name: "v4/next-minor", type: "minor" },
-  { name: "v4/next-major", type: "major" },
-]
-
-const upstream = { full_name: "Effect-TS/effect" }
-const fork = { full_name: "contributor/effect" }
-
-const pull = (base: string, head: string, draft = false, headRepo = upstream) => ({
-  draft,
-  base: { ref: base, repo: upstream },
-  head: { ref: head, repo: headRepo },
-})
-
-describe("shouldAutoRebase", () => {
-  it("selects open non-draft feature PRs targeting a release branch", () => {
-    expect(shouldAutoRebase(branches, pull("v4/next-minor", "feature-a"))).toBe(true)
-    expect(shouldAutoRebase(branches, pull("v4/next-major", "feature-b"))).toBe(true)
-
-    expect(shouldAutoRebase(branches, pull("v4/next-minor", "feature-c", true))).toBe(false)
-    expect(shouldAutoRebase(branches, pull("main", "feature-d"))).toBe(false)
-    // The "Release queue: major" PR is already rebased with its release branch.
-    expect(shouldAutoRebase(branches, pull("v4/next-minor", "v4/next-major"))).toBe(false)
-    // A fork branch that shares a release branch name is an ordinary contribution.
-    expect(shouldAutoRebase(branches, pull("v4/next-minor", "v4/next-major", false, fork))).toBe(
-      true,
-    )
-  })
-})
 
 describe("run", () => {
   const dirs: Array<string> = []
@@ -111,19 +76,18 @@ describe("run", () => {
         }),
       ),
     )
-    const TestPullRequests = Layer.succeed(PullRequests, {
-      listOpen: () => Stream.empty,
-    } as unknown as PullRequests["Service"])
     const TestRunnerEnv = Layer.succeed(RunnerEnv, {
       repo: { default_branch: "main" },
     } as unknown as RunnerEnv["Service"])
-    const provider = ConfigProvider.fromEnv({
-      env: { INPUT_GITHUB_TOKEN: "test-token" },
-    }).pipe(ConfigProvider.constantCase, ConfigProvider.layer)
+    const provider = ConfigProvider.fromEnv({ env: {} }).pipe(
+      ConfigProvider.constantCase,
+      ConfigProvider.layer,
+    )
 
+    // Release branch sync never touches individual pull requests, so `run` must not require
+    // `PullRequests`: providing only these layers fails to type check if that changes.
     await run.pipe(
-      Effect.provide(Layer.mergeAll(TestGit, TestPullRequests, TestRunnerEnv, Github.layer)),
-      Effect.provide(Layer.merge(provider, NodeServices.layer)),
+      Effect.provide(Layer.mergeAll(TestGit, TestRunnerEnv, provider)),
       Effect.runPromise,
     )
 
