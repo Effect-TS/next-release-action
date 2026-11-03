@@ -70,6 +70,7 @@ const main = Effect.gen(function* () {
   } else if (eligibleBranches.includes(env.ref) && env.isOrigin) {
     if (env.actor !== currentUser) {
       yield* Rebase.run
+      yield* Rebase.runLabelled
     }
     yield* ReleasePull.run
   } else if (Option.isSome(env.pull)) {
@@ -80,6 +81,7 @@ const main = Effect.gen(function* () {
     )
   } else if (env.ref === baseBranch) {
     yield* Rebase.run
+    yield* Rebase.runLabelled
   }
 }).pipe(Effect.provide(MainLayer))
 
