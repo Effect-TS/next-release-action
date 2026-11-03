@@ -26,8 +26,9 @@ For a minor-only Effect V3 queue:
 
 Pushes to `base_branch`, and pushes to an eligible branch by anyone other than the action's own user,
 rebase the release branches onto each other in order, for example `main` → `next-minor` →
-`next-major`. Individual pull requests are not automatically rebased; comment `/rebase` on a pull
-request targeting an eligible branch to rebase it.
+`next-major`. The same runs then rebase every open, non-draft pull request that targets an eligible
+branch and carries the `rebase` label. Other pull requests are not automatically rebased; comment
+`/rebase` on a pull request targeting an eligible branch to rebase it once.
 
 ## Development
 

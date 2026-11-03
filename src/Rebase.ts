@@ -2,6 +2,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Stream from "effect/Stream"
 import { Comments } from "./Comments.ts"
 import * as Config from "./Config.ts"
 import { Git } from "./Git.ts"
@@ -100,6 +101,30 @@ interface RebasePull {
   }
 }
 
+// Pull requests opt in to automatic rebasing with this label.
+export const rebaseLabel = "rebase"
+
+export const shouldAutoRebase = (
+  branches: ReadonlyArray<Config.ReleaseBranch>,
+  pull: {
+    readonly draft?: boolean | undefined
+    readonly labels: ReadonlyArray<{ readonly name?: string | undefined }>
+    readonly base: { readonly ref: string; readonly repo: { readonly full_name: string } }
+    readonly head: {
+      readonly ref: string
+      readonly repo: { readonly full_name: string } | null
+    }
+  },
+) =>
+  pull.draft !== true &&
+  pull.labels.some((label) => label.name === rebaseLabel) &&
+  branches.some((branch) => branch.name === pull.base.ref) &&
+  // Release branch heads are rebased with their branch; same-named fork branches are not.
+  !(
+    pull.head.repo?.full_name === pull.base.repo.full_name &&
+    branches.some((branch) => branch.name === pull.head.ref)
+  )
+
 // Expects origin to be fetched. Aborts a failed rebase so the checkout can be reused.
 const rebasePull = Effect.fn(function* (pull: RebasePull) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -128,6 +153,22 @@ const rebasePull = Effect.fn(function* (pull: RebasePull) {
       ]),
     )
     .pipe(Effect.tapError(() => git.run((_) => _.rebase(["--abort"])).pipe(Effect.ignore)))
+})
+
+// Rebases every open pull request labelled `rebase` that targets a release branch. A failure
+// is logged and does not stop the remaining pull requests.
+export const runLabelled = Effect.gen(function* () {
+  const git = yield* Git.pipe(Effect.flatMap((_) => _.open(".")))
+  const branches = yield* Config.eligibleBranches
+  const pulls = yield* PullRequests
+
+  yield* git.run((_) => _.fetch("origin"))
+  for (const branch of branches) {
+    yield* pulls.listOpen(branch.name).pipe(
+      Stream.filter((pull) => shouldAutoRebase(branches, pull)),
+      Stream.runForEach((pull) => rebasePull(pull).pipe(Effect.catchCause(Effect.log))),
+    )
+  }
 })
 
 export const runCurrent = Effect.gen(function* () {

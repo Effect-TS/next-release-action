@@ -7,9 +7,64 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { afterEach, describe, expect, it } from "vite-plus/test"
+import type { ReleaseBranch } from "./Config.ts"
 import { Git } from "./Git.ts"
-import { run } from "./Rebase.ts"
+import { run, shouldAutoRebase } from "./Rebase.ts"
 import { RunnerEnv } from "./Runner.ts"
+
+const branches: ReadonlyArray<ReleaseBranch> = [
+  { name: "v4/next-minor", type: "minor" },
+  { name: "v4/next-major", type: "major" },
+]
+
+const upstream = { full_name: "Effect-TS/effect" }
+const fork = { full_name: "contributor/effect" }
+
+const pull = (
+  base: string,
+  head: string,
+  options: {
+    readonly labels?: ReadonlyArray<string>
+    readonly draft?: boolean
+    readonly headRepo?: { readonly full_name: string }
+  } = {},
+) => ({
+  draft: options.draft ?? false,
+  labels: (options.labels ?? ["rebase"]).map((name) => ({ name })),
+  base: { ref: base, repo: upstream },
+  head: { ref: head, repo: options.headRepo ?? upstream },
+})
+
+describe("shouldAutoRebase", () => {
+  it("selects open non-draft PRs labelled rebase that target a release branch", () => {
+    expect(shouldAutoRebase(branches, pull("v4/next-minor", "feature-a"))).toBe(true)
+    expect(
+      shouldAutoRebase(branches, pull("v4/next-major", "feature-b", { labels: ["bug", "rebase"] })),
+    ).toBe(true)
+  })
+
+  it("skips PRs without the rebase label", () => {
+    expect(shouldAutoRebase(branches, pull("v4/next-minor", "feature-a", { labels: [] }))).toBe(
+      false,
+    )
+    expect(
+      shouldAutoRebase(branches, pull("v4/next-minor", "feature-a", { labels: ["rebased"] })),
+    ).toBe(false)
+  })
+
+  it("skips drafts, other bases and release queue PRs", () => {
+    expect(shouldAutoRebase(branches, pull("v4/next-minor", "feature-c", { draft: true }))).toBe(
+      false,
+    )
+    expect(shouldAutoRebase(branches, pull("main", "feature-d"))).toBe(false)
+    // The "Release queue: major" PR is already rebased with its release branch.
+    expect(shouldAutoRebase(branches, pull("v4/next-minor", "v4/next-major"))).toBe(false)
+    // A fork branch that shares a release branch name is an ordinary contribution.
+    expect(
+      shouldAutoRebase(branches, pull("v4/next-minor", "v4/next-major", { headRepo: fork })),
+    ).toBe(true)
+  })
+})
 
 describe("run", () => {
   const dirs: Array<string> = []
